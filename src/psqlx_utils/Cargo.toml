@@ -1,0 +1,8 @@
+[package]
+name = "psqlx_utils"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "psqlx_utils"
+crate-type = ["rlib", "staticlib"]

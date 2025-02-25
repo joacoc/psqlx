@@ -1,0 +1,3 @@
+[submodule "external/psql"]
+	path = external/psql
+	url = https://github.com/postgres/postgres.git

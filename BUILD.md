@@ -1,0 +1,30 @@
+1. Clone the repository:
+   ```sh
+   git clone https://github.com/joacoc/psqlx.git
+   cd psqlx
+   ```
+2. Build and install the project:
+   ```sh
+   ./bin/build.sh
+   ```
+
+# Load libraries
+
+```sh
+# Load library
+cp target/release/libpsqlx_ai.dylib ~/.local/share/psqlx/plugins/
+```
+
+# Use the build
+
+```
+/usr/local/pgsql/bin/psqlx "postgresql://postgres:postgres@localhost:5432"
+```
+
+# Bindings Generation
+
+```bash
+cargo install bindgen-cli
+
+bindgen src/include/wrapper.h  --output bindings.rs -- -I src/include -I src/interfaces/libpq -I src/include/utils/
+```
