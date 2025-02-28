@@ -1,6 +1,7 @@
 use libloading::{Library, Symbol};
+use log::debug;
 use once_cell::sync::Lazy;
-use psqlx_utils::bindings::{PQExpBuffer, PsqlScanState, PsqlSettings, backslashResult};
+use psqlx_utils::bindings::{backslashResult, PQExpBuffer, PsqlScanState, PsqlSettings};
 use std::collections::{HashMap, HashSet};
 use std::ffi::c_char;
 use std::path::{Path, PathBuf};
@@ -59,9 +60,7 @@ fn get_default_plugin_dir() -> PathBuf {
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
-        let plugin_dirs = vec![
-            get_xdg_data_dir().join("psqlx").join("plugins")
-        ];
+        let plugin_dirs = vec![get_xdg_data_dir().join("psqlx").join("plugins")];
 
         plugin_dirs
             .into_iter()
@@ -72,6 +71,8 @@ fn get_default_plugin_dir() -> PathBuf {
 
 pub fn initialize_plugins() -> Result<(), Box<dyn std::error::Error>> {
     let plugin_dir = get_default_plugin_dir();
+
+    debug!("Plugins dir: {:?}", plugin_dir);
 
     let plugin_manager = PluginManager::new(plugin_dir.clone());
     plugin_manager.init()?;
@@ -102,6 +103,7 @@ impl PluginManager {
             let entry = entry?;
             let path = entry.path();
 
+            debug!("Validating plugin: {:?}", path);
             if self.is_valid_plugin(&path) {
                 self.load_plugin(&path)?;
             }
@@ -124,12 +126,18 @@ impl PluginManager {
 
     fn load_plugin(&self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         unsafe {
-
             /*
              * I would love to use a struct rather than getting them one by one but
              * I'm not sure how to do that with libloading.
              */
-            let library = Library::new(path)?;
+            let library = match Library::new(path) {
+                Ok(lib) => lib,
+                Err(e) => {
+                    debug!("Failed to load library from {:?}: {:?}", path, e);
+                    return Err(e.into()); // Convert the error if needed
+                }
+            };
+            debug!("Loaded library successfully: {:?}", path);
 
             let plugin_name_f: Symbol<PluginCCharFunction> = library.get(b"name")?;
             let plugin_name_ptr = plugin_name_f();
@@ -142,10 +150,12 @@ impl PluginManager {
             let execute_f: Symbol<PluginCExecuteFunction> = library.get(b"execute_command")?;
 
             let mut commands = HashSet::new();
-            // TODO: Make it global from PSQLX_UTILS
             for command in meta_commands.split(",") {
                 commands.insert(command.to_string());
             }
+
+            debug!("Loaded plugin: {}", plugin_name);
+            debug!("Commands: {:?}", commands);
 
             let loaded_plugin = LoadedPlugin {
                 commands,

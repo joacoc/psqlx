@@ -46,8 +46,8 @@ use std::{
 use bindings::{PsqlScanState, _backslashResult, _backslashResult_PSQL_CMD_ERROR};
 
 use crate::bindings::{
-    ExecStatusType_PGRES_TUPLES_OK, PQExpBuffer, PQclear, PQexec, PQgetvalue, PQntuples,
-    PQresultStatus, PsqlSettings, strdup,
+    strdup, ExecStatusType_PGRES_TUPLES_OK, PQExpBuffer, PQclear, PQexec, PQgetvalue, PQntuples,
+    PQresultStatus, PsqlSettings,
 };
 
 pub fn to_c_str(string: &str) -> *const i8 {

@@ -49,7 +49,11 @@ where
             index % 8
         };
         let mask = 1 << bit_index;
-        if val { byte | mask } else { byte & !mask }
+        if val {
+            byte | mask
+        } else {
+            byte & !mask
+        }
     }
     #[inline]
     pub fn set_bit(&mut self, index: usize, val: bool) {
@@ -7698,7 +7702,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn palloc_extended(size: Size, flags: ::std::os::raw::c_int)
-    -> *mut ::std::os::raw::c_void;
+        -> *mut ::std::os::raw::c_void;
 }
 unsafe extern "C" {
     pub fn palloc_aligned(
@@ -7947,7 +7951,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn sigismember(arg1: *const sigset_t, arg2: ::std::os::raw::c_int)
-    -> ::std::os::raw::c_int;
+        -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn sigpause(arg1: ::std::os::raw::c_int) -> ::std::os::raw::c_int;
@@ -8653,7 +8657,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn PQsetnonblocking(conn: *mut PGconn, arg: ::std::os::raw::c_int)
-    -> ::std::os::raw::c_int;
+        -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn PQisnonblocking(conn: *const PGconn) -> ::std::os::raw::c_int;
@@ -8748,7 +8752,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn PQfsize(res: *const PGresult, field_num: ::std::os::raw::c_int)
-    -> ::std::os::raw::c_int;
+        -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn PQfmod(res: *const PGresult, field_num: ::std::os::raw::c_int) -> ::std::os::raw::c_int;
@@ -8818,11 +8822,11 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn PQclosePrepared(conn: *mut PGconn, stmt: *const ::std::os::raw::c_char)
-    -> *mut PGresult;
+        -> *mut PGresult;
 }
 unsafe extern "C" {
     pub fn PQclosePortal(conn: *mut PGconn, portal: *const ::std::os::raw::c_char)
-    -> *mut PGresult;
+        -> *mut PGresult;
 }
 unsafe extern "C" {
     pub fn PQsendClosePrepared(

@@ -3,8 +3,7 @@ use std::{error::Error, ffi::c_char};
 use commands::{fix::execute_command_fix, generate::execute_command_generate};
 use psqlx_utils::{
     bindings::{
-        PQExpBuffer, PsqlScanState, PsqlSettings, _backslashResult,
-        _backslashResult_PSQL_CMD_ERROR,
+        PQExpBuffer, PsqlScanState, PsqlSettings, _backslashResult, _backslashResult_PSQL_CMD_ERROR,
     },
     to_c_str, MetaCommand, Plugin,
 };
