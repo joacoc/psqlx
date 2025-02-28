@@ -20,6 +20,7 @@ PSQLX is a fork of PSQL with a subtle modification that enables dynamic library 
 Install `psqlx` using Homebrew:
 
 ```sh
+brew tap joacoc/psqlx
 brew install psqlx
 ```
 

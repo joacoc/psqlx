@@ -17,7 +17,7 @@ fi
 
 # Replace line 50 in Makefile
 sed '50c\
- $(CC) $(CFLAGS) $(OBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X) -L../../../../../target/release -lpsqlx -ldl -lpthread' \
+	$(CC) $(CFLAGS) $(OBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X) -L../../../../../target/release -lpsqlx -ldl -lpthread' \
 external/psql/src/bin/psql/Makefile > temp.txt && mv temp.txt external/psql/src/bin/psql/Makefile
 
 # Change psql to psqlx on line 67 of Makefile

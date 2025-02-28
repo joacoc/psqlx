@@ -11,8 +11,12 @@
 # Load libraries
 
 ```sh
-# Load library
+# Load library (macOS)
 cp target/release/libpsqlx_ai.dylib ~/.local/share/psqlx/plugins/
+
+
+# Load library (Linux)
+cp target/release/libpsqlx_ai.so ~/.local/share/psqlx/plugins/
 ```
 
 # Use the build
