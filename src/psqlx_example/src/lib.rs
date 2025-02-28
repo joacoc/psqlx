@@ -1,61 +1,40 @@
 use std::{error::Error, ffi::c_char};
 
-use commands::{fix::execute_command_fix, generate::execute_command_generate};
 use psqlx_utils::{
     bindings::{
-        PQExpBuffer, PsqlScanState, PsqlSettings, _backslashResult, _backslashResult_PSQL_CMD_ERROR,
+        PQExpBuffer, PsqlScanState, PsqlSettings, _backslashResult,
+        _backslashResult_PSQL_CMD_ERROR, _backslashResult_PSQL_CMD_SKIP_LINE,
     },
     to_c_str, MetaCommand, Plugin,
 };
 
-mod ai;
-mod commands;
-
 // Example meta-command implementation
-struct GenerateCommand;
+struct ExampleCommand;
 
-impl MetaCommand for GenerateCommand {
+impl MetaCommand for ExampleCommand {
     fn name(&self) -> &str {
-        "generate"
-    }
-
-    fn execute(
-        &self,
-        scan_state: PsqlScanState,
-        _active_branch: bool,
-        query_buf: PQExpBuffer,
-        _previous_buf: PQExpBuffer,
-        pset: PsqlSettings,
-    ) -> Result<_backslashResult, Box<dyn Error>> {
-        execute_command_generate(scan_state, query_buf, pset)
-    }
-}
-
-struct FixCommand;
-
-impl MetaCommand for FixCommand {
-    fn name(&self) -> &str {
-        "fix"
+        "example"
     }
 
     fn execute(
         &self,
         _scan_state: PsqlScanState,
         _active_branch: bool,
-        query_buf: PQExpBuffer,
-        previous_buf: PQExpBuffer,
-        pset: PsqlSettings,
+        _query_buf: PQExpBuffer,
+        _previous_buf: PQExpBuffer,
+        _pset: PsqlSettings,
     ) -> Result<_backslashResult, Box<dyn Error>> {
-        execute_command_fix(query_buf, previous_buf, pset)
+        println!("Executing example command");
+        Ok(_backslashResult_PSQL_CMD_SKIP_LINE)
     }
 }
 
 // Plugin implementation
-pub struct AIPlugin;
+struct ExamplePlugin;
 
-impl Plugin for AIPlugin {
+impl Plugin for ExamplePlugin {
     fn name(&self) -> &str {
-        "ai"
+        "example"
     }
 
     fn version(&self) -> &str {
@@ -63,23 +42,23 @@ impl Plugin for AIPlugin {
     }
 
     fn meta_commands(&self) -> Vec<Box<dyn MetaCommand>> {
-        vec![Box::new(GenerateCommand), Box::new(FixCommand)]
+        vec![Box::new(ExampleCommand)]
     }
 }
 
 // The required export function that will be called by the plugin manager
 #[unsafe(no_mangle)]
 pub extern "C" fn name() -> *const c_char {
-    to_c_str(AIPlugin.name())
+    to_c_str(ExamplePlugin.name())
 }
 
 pub extern "C" fn version() -> *const c_char {
-    to_c_str(AIPlugin.version())
+    to_c_str(ExamplePlugin.version())
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn meta_commands() -> *const c_char {
-    let commands = AIPlugin
+    let commands = ExamplePlugin
         .meta_commands()
         .iter()
         .map(|x| x.name())
@@ -88,7 +67,8 @@ pub extern "C" fn meta_commands() -> *const c_char {
     to_c_str(&commands)
 }
 
-pub fn execute_command(
+#[unsafe(no_mangle)]
+pub extern "C" fn execute_command(
     cmd: *const c_char,
     scan_state: PsqlScanState,
     active_branch: bool,
@@ -101,7 +81,7 @@ pub fn execute_command(
         Err(_) => return _backslashResult_PSQL_CMD_ERROR,
     };
 
-    let result = AIPlugin.execute_command(
+    let result = ExamplePlugin.execute_command(
         cmd_str,
         scan_state,
         active_branch,

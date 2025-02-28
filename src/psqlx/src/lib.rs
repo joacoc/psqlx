@@ -45,10 +45,9 @@ pub extern "C" fn has_command_ext(cmd: *const c_char) -> c_int {
         init_logger();
         debug!("Initializing plugins");
         if let Err(_e) = initialize_plugins() {
-            let _ = INIT_RESULT.set(0);
-        } else {
-            let _ = INIT_RESULT.set(1);
+            debug!("Error initializing plugins: {:?}", _e);
         }
+        let _ = INIT_RESULT.set(1);
     });
 
     match INIT_RESULT.get() {

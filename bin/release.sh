@@ -5,16 +5,20 @@ REPO="joacoc/psqlx"
 TAP_REPO="joacoc/homebrew-psqlx"
 VERSION="0.1.0"
 BIN_NAME="psqlx"
-BUILD_DIR="usr/local/psqlx/bin"
+PSQL_BUILD_DIR="/usr/local/pgsql/bin"
+BUILD_DIR="./build"
+PLUGIN_DIR="$BUILD_DIR/plugins"
 ARCHIVE_NAME="${BIN_NAME}-${ARCH}.tar.gz"
 FORMULA_FILE="Formula/${BIN_NAME}.rb"
 
 echo "🔨 Building ${BIN_NAME}..."
-make install -C external/psql/src/bin/psql
+./bin/build.sh
+
+echo "🫰 Grouping build..."
+mkdir -p "$BUILD_DIR"
+cp "$PSQL_BUILD_DIR/${BIN_NAME}" "$BUILD_DIR"
 
 echo "📦 Packaging binary..."
-mkdir -p "$BUILD_DIR"
-cp "/usr/local/pgsql/bin/${BIN_NAME}" "$BUILD_DIR"
 tar -czvf "$ARCHIVE_NAME" -C "$BUILD_DIR" .
 
 echo "📝 Calculating SHA256..."
@@ -41,10 +45,6 @@ class Psqlx < Formula
 
   def install
     bin.install "$BIN_NAME"
-    libpq = Formula["libpq"].opt_lib
-    libedit = Formula["libedit"].opt_lib
-    system "install_name_tool", "-change", "/usr/local/pgsql/lib/libpq.5.dylib", "\#{libpq}/libpq.5.dylib", bin/"$BIN_NAME"
-    system "install_name_tool", "-change", "/usr/lib/libedit.3.dylib", "\#{libedit}/libedit.3.dylib", bin/"$BIN_NAME"
   end
 
   test do

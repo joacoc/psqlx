@@ -5,7 +5,7 @@ edition = "2021"
 
 [lib]
 name = "psqlx_ai"
-crate-type = ["cdylib"]
+crate-type = ["rlib"]
 
 [dependencies]
 libc = "0.2.169"
