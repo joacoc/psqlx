@@ -5,7 +5,7 @@ use psqlx_utils::{
     bindings::{
         PQExpBuffer, PsqlScanState, PsqlSettings, _backslashResult, _backslashResult_PSQL_CMD_ERROR,
     },
-    to_c_str, MetaCommand, Plugin,
+    to_c_str, to_rust_string, MetaCommand, Plugin,
 };
 
 mod ai;
@@ -67,18 +67,15 @@ impl Plugin for AIPlugin {
     }
 }
 
-// The required export function that will be called by the plugin manager
-#[unsafe(no_mangle)]
-pub extern "C" fn name() -> *const c_char {
+pub fn name() -> *const c_char {
     to_c_str(AIPlugin.name())
 }
 
-pub extern "C" fn version() -> *const c_char {
+pub fn version() -> *const c_char {
     to_c_str(AIPlugin.version())
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn meta_commands() -> *const c_char {
+pub fn meta_commands() -> *const c_char {
     let commands = AIPlugin
         .meta_commands()
         .iter()
@@ -96,13 +93,13 @@ pub fn execute_command(
     previous_buf: PQExpBuffer,
     pset: PsqlSettings,
 ) -> _backslashResult {
-    let cmd_str = match unsafe { std::ffi::CStr::from_ptr(cmd).to_str() } {
+    let cmd_str = match to_rust_string(cmd) {
         Ok(s) => s,
         Err(_) => return _backslashResult_PSQL_CMD_ERROR,
     };
 
     let result = AIPlugin.execute_command(
-        cmd_str,
+        cmd_str.as_str(),
         scan_state,
         active_branch,
         query_buf,

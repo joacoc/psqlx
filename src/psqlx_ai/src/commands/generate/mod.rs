@@ -1,21 +1,16 @@
-use std::{
-    error::Error,
-    ffi::{CStr, CString},
-    ptr::null_mut,
-};
+use std::{error::Error, ptr::null_mut};
 
 use psqlx_utils::{
-    ask_to_continue,
+    ask_additional_instructions, ask_input,
     bindings::{
         PQExpBuffer, PsqlScanState, PsqlSettings, _backslashResult,
         _backslashResult_PSQL_CMD_ERROR, _backslashResult_PSQL_CMD_NEWEDIT,
-        _backslashResult_PSQL_CMD_SKIP_LINE, appendPQExpBufferStr, psql_scan_slash_option, puts,
-        resetPQExpBuffer, slash_option_type_OT_NORMAL,
+        _backslashResult_PSQL_CMD_SKIP_LINE, slash_option_type_OT_WHOLE_LINE,
     },
-    get_schema,
+    extract_args, get_schema, replace_query_buffer_data,
     spinner::Spinner,
 };
-use ureq::json;
+use ureq::{json, serde_json};
 
 use crate::ai::completion;
 
@@ -31,7 +26,7 @@ use crate::ai::completion;
 ///
 /// SELECT * FROM users;
 ///
-/// Run code? [Y/n]: y
+/// Follow up instructions:? [Enter/esc]: y
 /// ...
 /// ```
 ///
@@ -51,76 +46,111 @@ pub fn execute_command_generate(
     query_buf: PQExpBuffer,
     pset: PsqlSettings,
 ) -> Result<_backslashResult, Box<dyn Error>> {
-    let mut spinner = Spinner::start();
-    let arg_text = unsafe {
-        psql_scan_slash_option(scan_state, slash_option_type_OT_NORMAL, null_mut(), true)
-    };
+    if scan_state.is_null() {
+        return Ok(_backslashResult_PSQL_CMD_ERROR);
+    }
 
-    let arg_text_c_str = unsafe { CStr::from_ptr(arg_text) };
-    let arg_text_str = match arg_text_c_str.to_str() {
-        Ok(s) => s,
+    let args = match extract_args(
+        scan_state,
+        slash_option_type_OT_WHOLE_LINE,
+        null_mut(),
+        false,
+    ) {
+        Ok(args) => args,
         Err(_) => {
-            spinner.stop();
             return Ok(_backslashResult_PSQL_CMD_ERROR);
         }
     };
+
+    let mut arg_text = match args {
+        Some(s) => s,
+        None => ask_input("Jot instructions: "),
+    };
+    let mut spinner = Spinner::start();
+
     let schema = get_schema(pset);
+    let mut additional_instruction: Option<String> = None;
+    let mut chat_history: Vec<serde_json::Value> = Vec::new();
 
-    // Call the generate function
-    match generate_code(arg_text_str, &schema) {
-        Ok(generated_code) => {
-            let modified = format!("{}", generated_code);
-            spinner.stop();
+    loop {
+        match generate_code(
+            arg_text.as_str(),
+            &mut chat_history,
+            additional_instruction.clone(),
+            &schema,
+        ) {
+            Ok(generated_code) => {
+                spinner.stop();
+                println!("{}", generated_code);
 
-            let generated_c_code = match CString::new(modified) {
-                Ok(c_string) => c_string.into_raw(), // Transfer ownership
-                Err(_) => return Ok(_backslashResult_PSQL_CMD_ERROR),
-            };
-
-            unsafe {
-                puts(generated_c_code);
-            }
-
-            match ask_to_continue("Run code?") {
-                true => {
-                    unsafe {
-                        resetPQExpBuffer(query_buf);
-                        appendPQExpBufferStr(query_buf, generated_c_code);
+                match ask_additional_instructions() {
+                    psqlx_utils::AdditionalInstructions::Text(text) => {
+                        // Continue the conversation with the new instruction
+                        arg_text = text;
+                        additional_instruction = None;
+                        spinner = Spinner::start();
                     }
-
-                    return Ok(_backslashResult_PSQL_CMD_NEWEDIT);
+                    psqlx_utils::AdditionalInstructions::Flag(flag) => match flag {
+                        true => {
+                            replace_query_buffer_data(query_buf, generated_code.as_str());
+                            return Ok(_backslashResult_PSQL_CMD_NEWEDIT);
+                        }
+                        false => return Ok(_backslashResult_PSQL_CMD_SKIP_LINE),
+                    },
                 }
-                false => Ok(_backslashResult_PSQL_CMD_SKIP_LINE),
             }
-        }
-        Err(e) => {
-            spinner.stop();
-            println!("Error: {}", e);
-            Err(e)
+            Err(e) => {
+                spinner.stop();
+                println!("Error: {}", e);
+                return Err(e);
+            }
         }
     }
 }
 
-fn generate_code(arg_text: &str, schema: &str) -> Result<String, Box<dyn Error>> {
+fn generate_code(
+    arg_text: &str,
+    chat_history: &mut Vec<serde_json::Value>,
+    additional_instruction: Option<String>,
+    schema: &str,
+) -> Result<String, Box<dyn Error>> {
+    // If this is the first message, initialize with system prompt
+    if chat_history.is_empty() {
+        chat_history.push(json!({
+            "role": "system",
+            "content": format!(
+                "You are an expert IC engineer code assistant for PSQL.
+                Generate and return only the exact SQL it will be used as input to run again, do not use markdown and return the code formatted, nothing else.
+                Current schema of the database is:
+                {:?}
+                ", schema)
+        }));
+    }
+
+    // Add the user's message to chat history
+    chat_history.push(json!({
+        "role": "user",
+        "content": match additional_instruction {
+            Some(instruction) => format!("Follow up instruction: {}", instruction),
+            None => format!("Code generation request: {:?}", arg_text),
+        }
+    }));
+
+    // Create the payload with the full chat history
     let payload = json!({
         "model": "gpt-4o-mini",
-        "messages": [
-            {
-                "role": "system",
-                "content": format!("
-                    You are an expert IC engineer code assistant for PSQL.
-                    Generate and return only the exact SQL it will be used as input to run again, do not use markdown and return the code formatted, nothing else.
-                    Current schema of the database is:
-                    {:?}
-                ", schema)
-            },
-            {
-                "role": "user",
-                "content": format!("Code generation request: {:?}", arg_text)
-            }
-        ],
+        "messages": chat_history,
         "temperature": 0.0
     });
 
-    completion(payload)
+    // Get the response
+    let response = completion(payload)?;
+
+    // Add the assistant's response to the chat history
+    chat_history.push(json!({
+        "role": "assistant",
+        "content": response.clone()
+    }));
+
+    Ok(response)
 }

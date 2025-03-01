@@ -5,7 +5,7 @@ use psqlx_utils::{
         PQExpBuffer, PsqlScanState, PsqlSettings, _backslashResult,
         _backslashResult_PSQL_CMD_ERROR, _backslashResult_PSQL_CMD_SKIP_LINE,
     },
-    to_c_str, MetaCommand, Plugin,
+    to_c_str, to_rust_string, MetaCommand, Plugin,
 };
 
 // Example meta-command implementation
@@ -76,13 +76,13 @@ pub extern "C" fn execute_command(
     previous_buf: PQExpBuffer,
     pset: PsqlSettings,
 ) -> _backslashResult {
-    let cmd_str = match unsafe { std::ffi::CStr::from_ptr(cmd).to_str() } {
+    let cmd_str = match to_rust_string(cmd) {
         Ok(s) => s,
         Err(_) => return _backslashResult_PSQL_CMD_ERROR,
     };
 
     let result = ExamplePlugin.execute_command(
-        cmd_str,
+        cmd_str.as_str(),
         scan_state,
         active_branch,
         query_buf,

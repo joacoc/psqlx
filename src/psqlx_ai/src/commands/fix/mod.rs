@@ -3,18 +3,16 @@ use psqlx_utils::{
     bindings::{
         PQExpBuffer, PQerrorMessage, PsqlSettings, _backslashResult,
         _backslashResult_PSQL_CMD_ERROR, _backslashResult_PSQL_CMD_NEWEDIT,
-        _backslashResult_PSQL_CMD_SKIP_LINE, appendPQExpBufferStr, puts, resetPQExpBuffer,
+        _backslashResult_PSQL_CMD_SKIP_LINE, appendPQExpBufferStr, resetPQExpBuffer,
     },
     get_schema, pqexpbuffer_to_string,
     spinner::Spinner,
+    to_c_str,
 };
 use ureq::json;
 
 use crate::ai::completion;
-use std::{
-    error::Error,
-    ffi::{CStr, CString},
-};
+use std::{error::Error, ffi::CStr};
 
 /// Executes the "fix" command to generate a fix for a previously encountered error.
 ///
@@ -82,21 +80,13 @@ pub fn execute_command_fix(
             let modified = format!("{}", fixed_code);
             spinner.stop();
 
-            // Convert Rust string back to C string
-            let fixed_c_code = match CString::new(modified) {
-                Ok(c_string) => c_string.into_raw(), // Transfer ownership
-                Err(_) => return Ok(_backslashResult_PSQL_CMD_ERROR),
-            };
-
-            unsafe {
-                puts(fixed_c_code);
-            }
+            println!("{}", modified);
 
             match ask_to_continue("Run fix?") {
                 true => {
                     unsafe {
                         resetPQExpBuffer(query_buf);
-                        appendPQExpBufferStr(query_buf, fixed_c_code);
+                        appendPQExpBufferStr(query_buf, to_c_str(modified.as_str()));
                     }
 
                     return Ok(_backslashResult_PSQL_CMD_NEWEDIT);

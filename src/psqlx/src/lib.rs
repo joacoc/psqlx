@@ -3,7 +3,6 @@ use log::debug;
 use plugins::{initialize_plugins, PLUGIN_REGISTRY};
 use psqlx_utils::to_c_str;
 use std::env;
-use std::ffi::CStr;
 use std::os::raw::{c_char, c_int};
 use std::sync::{Once, OnceLock};
 
@@ -12,6 +11,7 @@ mod plugins;
 use psqlx_utils::bindings::{
     PQExpBuffer, PsqlScanState, PsqlSettings, _backslashResult, _backslashResult_PSQL_CMD_UNKNOWN,
 };
+use psqlx_utils::to_rust_string;
 
 // Static ONCE to ensure initialization happens only once
 static INIT: Once = Once::new();
@@ -37,9 +37,10 @@ pub fn init_logger() {
 // Updated external functions to use the new plugin system
 #[unsafe(no_mangle)]
 pub extern "C" fn has_command_ext(cmd: *const c_char) -> c_int {
-    if cmd.is_null() {
-        return 0;
-    }
+    let cmd = match to_rust_string(cmd) {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
 
     INIT.call_once(|| {
         init_logger();
@@ -52,14 +53,11 @@ pub extern "C" fn has_command_ext(cmd: *const c_char) -> c_int {
 
     match INIT_RESULT.get() {
         Some(value) if *value == 1 => {
-            let cmd = unsafe { CStr::from_ptr(cmd) };
-            if let Ok(cmd_str) = cmd.to_str() {
-                debug!("Processing command: {}", cmd_str);
-                if let Ok(registry) = PLUGIN_REGISTRY.read() {
-                    for plugin in registry.values() {
-                        if plugin.commands.contains(cmd_str) {
-                            return 1;
-                        }
+            debug!("Processing command: {}", cmd);
+            if let Ok(registry) = PLUGIN_REGISTRY.read() {
+                for plugin in registry.values() {
+                    if plugin.commands.contains(cmd.as_str()) {
+                        return 1;
                     }
                 }
             }
@@ -78,34 +76,28 @@ pub extern "C" fn exec_command_ext(
     previous_buf: PQExpBuffer,
     pset: PsqlSettings,
 ) -> _backslashResult {
-    if cmd.is_null() {
-        return _backslashResult_PSQL_CMD_UNKNOWN;
-    }
+    let cmd = match to_rust_string(cmd) {
+        Ok(s) => s,
+        Err(_) => return _backslashResult_PSQL_CMD_UNKNOWN,
+    };
+    let cmd = cmd.as_str();
 
-    let cmd = unsafe { CStr::from_ptr(cmd) };
-    if let Ok(cmd_str) = cmd.to_str() {
-        match cmd_str {
-            _ => {
-                if let Ok(registry) = PLUGIN_REGISTRY.read() {
-                    for plugin in registry.values() {
-                        if plugin.commands.contains(cmd_str) {
-                            return unsafe {
-                                (plugin.execute)(
-                                    to_c_str(cmd_str),
-                                    scan_state,
-                                    active_branch,
-                                    query_buf,
-                                    previous_buf,
-                                    pset,
-                                )
-                            };
-                        }
-                    }
-                }
-                _backslashResult_PSQL_CMD_UNKNOWN
+    if let Ok(registry) = PLUGIN_REGISTRY.read() {
+        for plugin in registry.values() {
+            if plugin.commands.contains(cmd) {
+                debug!("Running command: {}", cmd);
+                return unsafe {
+                    (plugin.execute)(
+                        to_c_str(cmd),
+                        scan_state,
+                        active_branch,
+                        query_buf,
+                        previous_buf,
+                        pset,
+                    )
+                };
             }
         }
-    } else {
-        _backslashResult_PSQL_CMD_UNKNOWN
     }
+    _backslashResult_PSQL_CMD_UNKNOWN
 }

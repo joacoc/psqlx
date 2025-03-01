@@ -3,6 +3,7 @@ members = [
     "src/psqlx",
     "src/psqlx_utils",
     "src/psqlx_ai",
-    "src/psqlx_example"
+    "src/psqlx_example",
+    "src/psqlx_viz"
 ]
 resolver = "3"

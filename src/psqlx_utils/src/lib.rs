@@ -1,5 +1,17 @@
 pub mod bindings;
 pub mod spinner;
+use std::{
+    error::Error,
+    ffi::{CStr, CString},
+    io::{self, Write},
+};
+
+use bindings::{
+    appendPQExpBufferStr, psql_scan_slash_option, resetPQExpBuffer, strdup,
+    ExecStatusType_PGRES_TUPLES_OK, PQExpBuffer, PQExpBufferData, PQclear, PQexec, PQgetvalue,
+    PQntuples, PQresultStatus, PsqlScanState, PsqlSettings, _backslashResult,
+    _backslashResult_PSQL_CMD_ERROR, slash_option_type,
+};
 
 // Trait that all PSQL meta-commands must implement
 pub trait MetaCommand: Send + Sync {
@@ -37,24 +49,19 @@ pub trait Plugin {
     }
 }
 
-use std::{
-    error::Error,
-    ffi::{CStr, CString},
-    io::{self, Write},
-};
-
-use bindings::{PsqlScanState, _backslashResult, _backslashResult_PSQL_CMD_ERROR};
-
-use crate::bindings::{
-    strdup, ExecStatusType_PGRES_TUPLES_OK, PQExpBuffer, PQclear, PQexec, PQgetvalue, PQntuples,
-    PQresultStatus, PsqlSettings,
-};
-
 pub fn to_c_str(string: &str) -> *const i8 {
     return match CString::new(string) {
         Ok(c_string) => c_string.into_raw(),
         Err(_) => std::ptr::null_mut(),
     };
+}
+
+pub fn to_rust_string(ptr: *const i8) -> Result<String, Box<dyn Error>> {
+    if ptr.is_null() {
+        return Err("Null pointer".into());
+    }
+    let c_str = unsafe { CStr::from_ptr(ptr) };
+    Ok(c_str.to_str()?.to_string())
 }
 
 pub fn ask_to_continue(question: &str) -> bool {
@@ -66,6 +73,67 @@ pub fn ask_to_continue(question: &str) -> bool {
     println!();
 
     return response.trim().to_lowercase() == "y" || response.trim().is_empty();
+}
+
+pub enum AdditionalInstructions {
+    Text(String),
+    Flag(bool),
+}
+
+pub fn ask_input(question: &str) -> String {
+    print!("{}", question);
+    io::stdout().flush().unwrap();
+
+    let mut response = String::new();
+    io::stdin().read_line(&mut response).unwrap();
+    println!();
+
+    response
+}
+
+pub fn ask_additional_instructions() -> AdditionalInstructions {
+    print!("\nFollow up instructions, or enter: ");
+    io::stdout().flush().unwrap();
+
+    let mut response = String::new();
+    io::stdin().read_line(&mut response).unwrap();
+    println!();
+
+    if response.trim().to_lowercase() == "y" || response.trim().is_empty() {
+        AdditionalInstructions::Flag(true)
+    } else if response.trim().to_lowercase() == "n"
+        || response.trim().to_lowercase() == "\\q"
+        || response.trim().to_lowercase() == "^C"
+    {
+        AdditionalInstructions::Flag(false)
+    } else {
+        AdditionalInstructions::Text(response)
+    }
+}
+
+pub fn replace_query_buffer_data(query_buf: *mut PQExpBufferData, str: &str) {
+    unsafe {
+        resetPQExpBuffer(query_buf);
+        appendPQExpBufferStr(query_buf, to_c_str(str));
+    }
+}
+
+pub fn extract_args(
+    state: PsqlScanState,
+    type_: slash_option_type,
+    quote: *mut ::std::os::raw::c_char,
+    semicolon: bool,
+) -> Result<Option<String>, Box<dyn Error>> {
+    let curline = unsafe { to_rust_string((*state).curline)? };
+    let refline = unsafe { to_rust_string((*state).refline)? };
+
+    if curline.trim() == refline.trim() {
+        return Ok(None);
+    }
+
+    let arg_text = unsafe { psql_scan_slash_option(state, type_, quote, semicolon) };
+
+    Ok(Some(to_rust_string(arg_text)?))
 }
 
 /// Converts a PQExpBuffer to a Rust String

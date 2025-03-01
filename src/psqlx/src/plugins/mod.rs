@@ -2,6 +2,7 @@ use libloading::{Library, Symbol};
 use log::debug;
 use once_cell::sync::Lazy;
 use psqlx_utils::bindings::{backslashResult, PQExpBuffer, PsqlScanState, PsqlSettings};
+use psqlx_utils::to_rust_string;
 use std::collections::{HashMap, HashSet};
 use std::ffi::c_char;
 use std::path::{Path, PathBuf};
@@ -101,6 +102,10 @@ impl PluginManager {
     }
 
     fn load_embedded_plugins(&self) -> Result<(), Box<dyn std::error::Error>> {
+        debug!("Loading embedded plugins.");
+
+        // AI plugin
+        debug!("Loading AI plugin.");
         let meta_commands_ptr = psqlx_ai::meta_commands();
         let meta_commands = self.extract_meta_commands(meta_commands_ptr)?;
         let execute_f = psqlx_ai::execute_command;
@@ -110,10 +115,23 @@ impl PluginManager {
             execute: execute_f,
         };
 
-        let plugin_name_ptr = psqlx_ai::name();
-        let plugin_name = unsafe { std::ffi::CStr::from_ptr(plugin_name_ptr).to_str() }?;
+        let plugin_name = to_rust_string(psqlx_ai::name())?;
 
         let mut registry = PLUGIN_REGISTRY.write().unwrap();
+        registry.insert(plugin_name.to_string(), loaded_plugin);
+
+        // Viz plugin 
+        debug!("Loading Viz plugin.");
+        let meta_commands_ptr = psqlx_viz::meta_commands();
+        let meta_commands = self.extract_meta_commands(meta_commands_ptr)?;
+        let execute_f = psqlx_viz::execute_command;
+
+        let loaded_plugin = LoadedPlugin {
+            commands: meta_commands,
+            execute: execute_f,
+        };
+
+        let plugin_name = to_rust_string(psqlx_viz::name())?;
         registry.insert(plugin_name.to_string(), loaded_plugin);
 
         Ok(())
@@ -149,7 +167,7 @@ impl PluginManager {
         &self,
         meta_commands_ptr: *const i8,
     ) -> Result<HashSet<String>, Box<dyn std::error::Error>> {
-        let meta_commands = unsafe { std::ffi::CStr::from_ptr(meta_commands_ptr).to_str() }?;
+        let meta_commands = to_rust_string(meta_commands_ptr)?;
 
         let mut commands = HashSet::new();
         for command in meta_commands.split(",") {
@@ -175,12 +193,10 @@ impl PluginManager {
             debug!("Loaded library successfully: {:?}", path);
 
             let plugin_name_f: Symbol<PluginCCharFunction> = library.get(b"name")?;
-            let plugin_name_ptr = plugin_name_f();
-            let plugin_name = std::ffi::CStr::from_ptr(plugin_name_ptr).to_str()?;
+            let plugin_name = to_rust_string(plugin_name_f())?;
 
             let meta_commands_f: Symbol<PluginCCharFunction> = library.get(b"meta_commands")?;
-            let meta_commands_ptr = meta_commands_f();
-            let meta_commands = self.extract_meta_commands(meta_commands_ptr)?;
+            let meta_commands = self.extract_meta_commands(meta_commands_f())?;
 
             let execute_f: Symbol<PluginCExecuteFunction> = library.get(b"execute_command")?;
 

@@ -30,5 +30,5 @@ cp target/release/libpsqlx_ai.so ~/.local/share/psqlx/plugins/
 ```bash
 cargo install bindgen-cli
 
-bindgen src/include/wrapper.h  --output bindings.rs -- -I src/include -I src/interfaces/libpq -I src/include/utils/
+bindgen external/psql/src/include/wrapper.h  --output bindings.rs -- -I external/psql/src/include -I external/psql/src/interfaces/libpq -I external/psql/src/include/utils/ -I external/psql/src/include/utils/fe-utils
 ```

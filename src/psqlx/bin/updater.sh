@@ -1,4 +1,5 @@
 cp src/psqlx/src/psqlx.h external/psql/src/include/
+cp src/psqlx/src/wrapper.h external/psql/src/bin/psql/include/
 
 # Avoid applying the patch if it has already been applied
 if cat external/psql/src/bin/psql/command.c | grep -q has_command_ext; then
