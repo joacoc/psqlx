@@ -120,19 +120,19 @@ impl PluginManager {
         let mut registry = PLUGIN_REGISTRY.write().unwrap();
         registry.insert(plugin_name.to_string(), loaded_plugin);
 
-        // Viz plugin 
-        debug!("Loading Viz plugin.");
-        let meta_commands_ptr = psqlx_viz::meta_commands();
-        let meta_commands = self.extract_meta_commands(meta_commands_ptr)?;
-        let execute_f = psqlx_viz::execute_command;
+        // Viz plugin
+        // debug!("Loading Viz plugin.");
+        // let meta_commands_ptr = psqlx_viz::meta_commands();
+        // let meta_commands = self.extract_meta_commands(meta_commands_ptr)?;
+        // let execute_f = psqlx_viz::execute_command;
 
-        let loaded_plugin = LoadedPlugin {
-            commands: meta_commands,
-            execute: execute_f,
-        };
+        // let loaded_plugin = LoadedPlugin {
+        //     commands: meta_commands,
+        //     execute: execute_f,
+        // };
 
-        let plugin_name = to_rust_string(psqlx_viz::name())?;
-        registry.insert(plugin_name.to_string(), loaded_plugin);
+        // let plugin_name = to_rust_string(psqlx_viz::name())?;
+        // registry.insert(plugin_name.to_string(), loaded_plugin);
 
         Ok(())
     }

@@ -1,15 +1,12 @@
 use psqlx_utils::{
-    ask_to_continue,
-    bindings::{
+    ask_yea_or_nay, bindings::{
         PQExpBuffer, PQerrorMessage, PsqlSettings, _backslashResult,
         _backslashResult_PSQL_CMD_ERROR, _backslashResult_PSQL_CMD_NEWEDIT,
-        _backslashResult_PSQL_CMD_SKIP_LINE, appendPQExpBufferStr, resetPQExpBuffer,
-    },
-    get_schema, pqexpbuffer_to_string,
-    spinner::Spinner,
-    to_c_str,
+        _backslashResult_PSQL_CMD_SKIP_LINE,
+    }, get_schema_json, pqexpbuffer_to_string, spinner::Spinner
 };
 use ureq::json;
+use psqlx_utils::replace_query_buffer_data;
 
 use crate::ai::completion;
 use std::{error::Error, ffi::CStr};
@@ -20,25 +17,6 @@ use std::{error::Error, ffi::CStr};
 /// for the associated code using the error message and schema information, and presents the fixed code to the user.
 /// The user is then asked whether they want to apply the fix to the query buffer. If the user agrees,
 /// the fixed code is added to the query buffer for execution.
-///
-/// Example:
-/// ```psql
-/// postgres=# SELEC 2;
-/// ERROR:  syntax error at or near "SELEC"
-/// LINE 1: SELEC 2;
-///         ^
-/// postgres=# \fix
-/// SELECT 2;
-///
-/// Run fix? [Y/n]: Y
-///
-///  ?column?
-/// ----------
-///         2
-/// (1 row)
-///
-/// postgres=#
-/// ```
 ///
 /// # Returns
 /// - `Ok(_backslashResult_PSQL_CMD_NEWEDIT)`: If the user agrees to apply the fix, the fixed code is added
@@ -66,7 +44,7 @@ pub fn execute_command_fix(
             return Ok(_backslashResult_PSQL_CMD_ERROR);
         }
     };
-    let schema_str = &get_schema(pset);
+    let schema_str = &get_schema_json(pset);
 
     if err_msg_str.trim().is_empty() {
         spinner.stop();
@@ -82,16 +60,13 @@ pub fn execute_command_fix(
 
             println!("{}", modified);
 
-            match ask_to_continue("Run fix?") {
-                true => {
-                    unsafe {
-                        resetPQExpBuffer(query_buf);
-                        appendPQExpBufferStr(query_buf, to_c_str(modified.as_str()));
-                    }
-
+            match ask_yea_or_nay("Run fix?") {
+                Ok(true) => {
+                    replace_query_buffer_data(query_buf, modified.as_str());
+                    println!();
                     return Ok(_backslashResult_PSQL_CMD_NEWEDIT);
                 }
-                false => {
+                _ => {
                     println!("Fix not applied.");
                     return Ok(_backslashResult_PSQL_CMD_SKIP_LINE);
                 }
@@ -114,7 +89,7 @@ pub fn fix_code(code: &str, error_msg: &str, schema: &str) -> Result<String, Box
                 "role": "system",
                 "content": format!(
                 "
-                    You are an expert IC engineer code assistant for PSQL.
+                    You are a Distinguished Engineer code assistant for PSQL, the Postgres terminal.
                     Generate and return only the exact SQL it will be used as input to run again, do not use markdown and return the code formatted, nothing else.
                     Current schema of the database is:
                     {:?}

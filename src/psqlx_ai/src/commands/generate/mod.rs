@@ -1,14 +1,15 @@
 use std::{error::Error, ptr::null_mut};
 
 use psqlx_utils::{
-    ask_additional_instructions, ask_input,
+    ask_additional_instructions,
     bindings::{
         PQExpBuffer, PsqlScanState, PsqlSettings, _backslashResult,
         _backslashResult_PSQL_CMD_ERROR, _backslashResult_PSQL_CMD_NEWEDIT,
         _backslashResult_PSQL_CMD_SKIP_LINE, slash_option_type_OT_WHOLE_LINE,
     },
-    extract_args, get_schema, replace_query_buffer_data,
+    extract_args, get_schema_json, replace_query_buffer_data,
     spinner::Spinner,
+    AdditionalInstructions
 };
 use ureq::{json, serde_json};
 
@@ -19,16 +20,6 @@ use crate::ai::completion;
 /// This function processes a given command option, generates code based on the schema, and
 /// presents the generated code to the user. The user is then asked whether they want to run the generated code.
 /// If the user agrees, the generated code is appended to the query buffer for execution.
-///
-/// Example:
-/// ```psql
-/// \generate "a query to get all users"
-///
-/// SELECT * FROM users;
-///
-/// Follow up instructions:? [Enter/esc]: y
-/// ...
-/// ```
 ///
 /// # Returns
 /// - `Ok(_backslashResult_PSQL_CMD_NEWEDIT)`: If the user agrees to run the generated code, it is added
@@ -64,11 +55,22 @@ pub fn execute_command_generate(
 
     let mut arg_text = match args {
         Some(s) => s,
-        None => ask_input("Jot instructions: "),
+        None => match ask_additional_instructions("Jot instructions: ", false) {
+            Ok(psqlx_utils::AdditionalInstructions::Text(text)) => text,
+            Ok(psqlx_utils::AdditionalInstructions::Flag(true)) => {
+                println!("No instructions given.");
+                return Ok(_backslashResult_PSQL_CMD_SKIP_LINE);
+            },
+            Ok(psqlx_utils::AdditionalInstructions::Flag(false)) => {
+                println!("Meta-command cancelled.");
+                return Ok(_backslashResult_PSQL_CMD_SKIP_LINE)
+            },
+            Err(_) => return Ok(_backslashResult_PSQL_CMD_ERROR)
+        },
     };
     let mut spinner = Spinner::start();
 
-    let schema = get_schema(pset);
+    let schema = get_schema_json(pset);
     let mut additional_instruction: Option<String> = None;
     let mut chat_history: Vec<serde_json::Value> = Vec::new();
 
@@ -83,20 +85,24 @@ pub fn execute_command_generate(
                 spinner.stop();
                 println!("{}", generated_code);
 
-                match ask_additional_instructions() {
-                    psqlx_utils::AdditionalInstructions::Text(text) => {
+                match ask_additional_instructions("Follow up instructions, or", true) {
+                    Ok(AdditionalInstructions::Text(text)) => {
                         // Continue the conversation with the new instruction
                         arg_text = text;
                         additional_instruction = None;
                         spinner = Spinner::start();
                     }
-                    psqlx_utils::AdditionalInstructions::Flag(flag) => match flag {
+                    Ok(AdditionalInstructions::Flag(flag)) => match flag {
                         true => {
                             replace_query_buffer_data(query_buf, generated_code.as_str());
                             return Ok(_backslashResult_PSQL_CMD_NEWEDIT);
                         }
-                        false => return Ok(_backslashResult_PSQL_CMD_SKIP_LINE),
+                        false => {
+                            println!("Meta-command cancelled.");
+                            return Ok(_backslashResult_PSQL_CMD_SKIP_LINE);
+                        },
                     },
+                    Err(_) => return Ok(_backslashResult_PSQL_CMD_ERROR),
                 }
             }
             Err(e) => {
@@ -119,7 +125,7 @@ fn generate_code(
         chat_history.push(json!({
             "role": "system",
             "content": format!(
-                "You are an expert IC engineer code assistant for PSQL.
+                "You are a Distinguished Engineer code assistant for PSQL, the Postgres terminal.
                 Generate and return only the exact SQL it will be used as input to run again, do not use markdown and return the code formatted, nothing else.
                 Current schema of the database is:
                 {:?}

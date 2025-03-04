@@ -4,7 +4,7 @@ src/psqlx/bin/updater.sh
 
 # Configure PSQL
 cd external/psql
-./configure
+./configure --with-openssl
 make clean
 make -C src/interfaces/libpq
 make install -C src/interfaces/libpq

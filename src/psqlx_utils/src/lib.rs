@@ -7,10 +7,7 @@ use std::{
 };
 
 use bindings::{
-    appendPQExpBufferStr, psql_scan_slash_option, resetPQExpBuffer, strdup,
-    ExecStatusType_PGRES_TUPLES_OK, PQExpBuffer, PQExpBufferData, PQclear, PQexec, PQgetvalue,
-    PQntuples, PQresultStatus, PsqlScanState, PsqlSettings, _backslashResult,
-    _backslashResult_PSQL_CMD_ERROR, slash_option_type,
+    appendPQExpBufferStr, psql_scan_slash_option, resetPQExpBuffer, ExecStatusType_PGRES_TUPLES_OK, ExecStatusType_PGRES_COMMAND_OK, PQerrorMessage, PQExpBuffer, PQExpBufferData, PQclear, PQexec, PQgetvalue, PQntuples, PQresultStatus, PsqlScanState, PsqlSettings, _backslashResult, _backslashResult_PSQL_CMD_ERROR, slash_option_type, PGresult, PQgetisnull, PQnfields, PQresultErrorMessage
 };
 
 // Trait that all PSQL meta-commands must implement
@@ -64,52 +61,150 @@ pub fn to_rust_string(ptr: *const i8) -> Result<String, Box<dyn Error>> {
     Ok(c_str.to_str()?.to_string())
 }
 
-pub fn ask_to_continue(question: &str) -> bool {
-    print!("\n{} [Y/n]: ", question);
-    io::stdout().flush().unwrap();
-
-    let mut response = String::new();
-    io::stdin().read_line(&mut response).unwrap();
-    println!();
-
-    return response.trim().to_lowercase() == "y" || response.trim().is_empty();
-}
-
 pub enum AdditionalInstructions {
     Text(String),
     Flag(bool),
 }
 
-pub fn ask_input(question: &str) -> String {
-    print!("{}", question);
-    io::stdout().flush().unwrap();
+use crossterm::{
+    event::{read, Event, KeyCode, KeyEvent, KeyModifiers},
+    terminal::{enable_raw_mode, disable_raw_mode},
+    cursor,
+    execute
+};
 
-    let mut response = String::new();
-    io::stdin().read_line(&mut response).unwrap();
-    println!();
+pub fn ask_yea_or_nay(question: &str) ->  Result<bool, Box<dyn Error>> {
+    // Enable raw mode to capture individual keystrokes
+    enable_raw_mode()?;
 
-    response
-}
+    // Print the initial prompt
+    let mut stdout = io::stdout();
+    execute!(stdout, cursor::SavePosition)?;
+    print!("{} [enter/esc]: ", question);
+    stdout.flush()?;
 
-pub fn ask_additional_instructions() -> AdditionalInstructions {
-    print!("\nFollow up instructions, or enter: ");
-    io::stdout().flush().unwrap();
+    // Initialize an empty string to store user input
+    let input = String::new();    loop {
+        match read()? {
+            Event::Key(KeyEvent { code, modifiers, .. }) => match (code, modifiers) {
+                // Enter key - return the input
+                (KeyCode::Enter, _) => {
+                    disable_raw_mode()?;
+                    
+                    // If input is empty, return a Flag(true)
+                    let trimmed_input = input.trim().to_string();
+                    if trimmed_input.is_empty() {
+                        return Ok(true);
+                    } else {
+                        return Ok(false);
+                    }
+                }
+                
+                // Escape - cancel operation
+                (KeyCode::Esc, _) => {
+                    disable_raw_mode()?;
+                    return Ok(false);
+                }
+                
+                // Ctrl+C or Cmd+C handling
+                (KeyCode::Char('c'), KeyModifiers::CONTROL) | 
+                (KeyCode::Char('c'), KeyModifiers::META) => {
+                    disable_raw_mode()?;
+                    return Ok(false);
+                }
+                
+                _ => {} // Ignore other keys
+            },
+            _ => {}
+        }
+    }
+} 
 
-    let mut response = String::new();
-    io::stdin().read_line(&mut response).unwrap();
-    println!();
-
-    if response.trim().to_lowercase() == "y" || response.trim().is_empty() {
-        AdditionalInstructions::Flag(true)
-    } else if response.trim().to_lowercase() == "n"
-        || response.trim().to_lowercase() == "\\q"
-        || response.trim().to_lowercase() == "^C"
-    {
-        AdditionalInstructions::Flag(false)
+pub fn ask_additional_instructions(text: &str, help: bool) -> Result<AdditionalInstructions, Box<dyn Error>> {
+    // Enable raw mode to capture individual keystrokes
+    enable_raw_mode()?;
+    
+    // Print the initial prompt
+    let mut stdout = io::stdout();
+    execute!(stdout, cursor::SavePosition)?;
+    if help {
+        print!("{} [enter/esc]: ", text);
     } else {
-        AdditionalInstructions::Text(response)
+        print!("{}", text);
+    }
+    
+    stdout.flush()?;
+    
+    // Initialize an empty string to store user input
+    let mut input = String::new();
+    
+    loop {
+        match read()? {
+            Event::Key(KeyEvent { code, modifiers, .. }) => match (code, modifiers) {
+                // Enter key - return the input
+                (KeyCode::Enter, _) => {
+                    disable_raw_mode()?;
+                    println!(); // Move to next line after enter
+                    
+                    // If input is empty, return a Flag(true)
+                    let trimmed_input = input.trim().to_string();
+                    if trimmed_input.is_empty() {
+                        return Ok(AdditionalInstructions::Flag(true));
+                    }
+                    
+                    let lowercase_trimmed_input = trimmed_input.to_lowercase();
+                    if lowercase_trimmed_input == "quit" || 
+                       lowercase_trimmed_input == "n" ||
+                       lowercase_trimmed_input == "\\q" || 
+                       lowercase_trimmed_input == "exit" || 
+                       lowercase_trimmed_input == "\\exit" {
+                        return Ok(AdditionalInstructions::Flag(false));
+                    }
+                    
+                    // Return input as Text
+                    return Ok(AdditionalInstructions::Text(input.trim().to_string()));
+                }
+                
+                // Backspace - remove last character
+                (KeyCode::Backspace, _) => {
+                    if !input.is_empty() {
+                        input.pop();
+                        execute!(stdout, cursor::MoveLeft(1), cursor::SavePosition)?;
+                        print!(" ");
+                        execute!(stdout, cursor::RestorePosition)?;
+                        stdout.flush()?;
+                    }
+                }
+                
+                // Ctrl+C or Cmd+C handling
+                (KeyCode::Char('c'), KeyModifiers::CONTROL) | 
+                (KeyCode::Char('c'), KeyModifiers::META) => {
+                    disable_raw_mode()?;
+                    return Ok(AdditionalInstructions::Flag(false));
+                }
+                
+                // Character input
+                (KeyCode::Char(c), _) => {
+                    input.push(c);
+                    print!("{}", c);
+                    stdout.flush()?;
+                }
+                
+                // Escape - cancel operation
+                (KeyCode::Esc, _) => {
+                    disable_raw_mode()?;
+                    return Ok(AdditionalInstructions::Flag(false));
+                }
+                
+                _ => {} // Ignore other keys
+            },
+            
+            // Handle other events if needed
+            _ => {}
+        }
     }
 }
+
 
 pub fn replace_query_buffer_data(query_buf: *mut PQExpBufferData, str: &str) {
     unsafe {
@@ -200,25 +295,129 @@ FROM (
 ///
 /// # Example
 /// ```rust
-/// let schema_info = get_schema(pset);
+/// let schema_info = get_schema_json(pset);
 /// println!("Schema: {}", schema_info);
 /// ```
-pub fn get_schema(pset: PsqlSettings) -> String {
-    let schema_res = unsafe { PQexec(pset.db, to_c_str(SCHEMA_QUERY)) };
-
-    if (unsafe { PQresultStatus(schema_res) } == ExecStatusType_PGRES_TUPLES_OK
-        && unsafe { PQntuples(schema_res) } > 0)
-    {
-        let cached_schema = unsafe { strdup(PQgetvalue(schema_res, 0, 0)) };
-        let cached_schema = unsafe { CStr::from_ptr(cached_schema) };
-        let cached_schema_str = match cached_schema.to_str() {
-            Ok(s) => s,
-            Err(_) => "",
-        };
-        unsafe { PQclear(schema_res) };
-        return cached_schema_str.to_owned();
+pub fn get_schema_json(pset: PsqlSettings) -> String {
+    // Use our generic run_sql function for the schema query
+    match query_as(
+        pset,
+        SCHEMA_QUERY,
+        |values| {
+            // For this case, we're expecting a single JSON column in a single row
+            if values.is_empty() {
+                return Ok("".to_string());
+            }
+            
+            // Extract the JSON value, defaulting to empty string if NULL
+            let json_str = values[0].unwrap_or("").to_string();
+            Ok(json_str)
+        }
+    ) {
+        Ok(results) => {
+            // Take the first row if available, otherwise return empty string
+            results.into_iter().next().unwrap_or_else(|| "".to_string())
+        },
+        Err(_) => {
+            // Return empty string on error, matching original behavior
+            "".to_string()
+        }
     }
+}
 
-    unsafe { PQclear(schema_res) };
-    return "".to_owned();
+pub fn run_sql<T, F>(
+    pset: PsqlSettings, 
+    sql: &str,
+    row_mapper: F
+) -> Result<Vec<T>, String> 
+where 
+    F: Fn(usize, usize, &[Option<&str>]) -> Result<T, String>
+{
+    // Execute the query using the provided SQL string
+    let req_res = unsafe { PQexec(pset.db, to_c_str(sql)) };
+    
+    // Check if the result pointer is null (connection error)
+    if req_res.is_null() {
+        let error_msg = unsafe { CStr::from_ptr(PQerrorMessage(pset.db)) }
+            .to_string_lossy()
+            .to_string();
+        return Err(format!("Query execution failed: {}", error_msg));
+    }
+    
+    // Ensure we clean up the result object to avoid memory leaks
+    struct ResultGuard(*mut PGresult);
+    impl Drop for ResultGuard {
+        fn drop(&mut self) {
+            unsafe { PQclear(self.0) };
+        }
+    }
+    let _guard = ResultGuard(req_res);
+    
+    // Get the result status
+    let status = unsafe { PQresultStatus(req_res) };
+    
+    // Process the result based on status
+    match status {
+        // Handle case when query returns data rows
+        ExecStatusType_PGRES_TUPLES_OK => {
+            let num_rows = unsafe { PQntuples(req_res) };
+            let num_cols = unsafe { PQnfields(req_res) };
+            
+            let mut results = Vec::with_capacity(num_rows as usize);
+            
+            // Iterate over all rows
+            for row_idx in 0..num_rows {
+                // Collect all column values for this row
+                let mut row_values = Vec::with_capacity(num_cols as usize);
+                
+                for col_idx in 0..num_cols {
+                    // Check if the field is NULL
+                    let is_null = unsafe { PQgetisnull(req_res, row_idx, col_idx) } != 0;
+                    
+                    if is_null {
+                        row_values.push(None);
+                    } else {
+                        // Get the field value
+                        let value = unsafe { PQgetvalue(req_res, row_idx, col_idx) };
+                        let value_str = unsafe { CStr::from_ptr(value) }.to_str().unwrap_or("");
+                        row_values.push(Some(value_str));
+                    }
+                }
+                
+                // Let the caller map the row to their desired type
+                match row_mapper(row_idx.try_into().unwrap(), num_cols as usize, &row_values) {
+                    Ok(mapped_row) => results.push(mapped_row),
+                    Err(err) => return Err(format!("Error mapping row {}: {}", row_idx, err)),
+                }
+            }
+            
+            Ok(results)
+        },
+        
+        // Handle case when query executed successfully but doesn't return rows
+        ExecStatusType_PGRES_COMMAND_OK => {
+            // For operations like INSERT, UPDATE, DELETE
+            Err("Command executed successfully but returned no data rows.".to_string())
+        },
+        
+        // Handle error cases
+        _ => {
+            let error_msg = unsafe { CStr::from_ptr(PQresultErrorMessage(req_res)) }
+                .to_string_lossy()
+                .to_string();
+            Err(format!("Query failed: {}", error_msg))
+        }
+    }
+}
+
+// Example implementation: A utility function that builds on run_sql for common query patterns
+pub fn query_as<T, F>(
+    pset: PsqlSettings,
+    sql: &str,
+    row_mapper: F
+) -> Result<Vec<T>, String>
+where
+    F: Fn(&[Option<&str>]) -> Result<T, String>
+{
+    run_sql(pset, sql, |_, _, values| row_mapper(values))
 }
